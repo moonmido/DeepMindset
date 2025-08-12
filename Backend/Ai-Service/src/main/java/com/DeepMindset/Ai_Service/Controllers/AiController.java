@@ -5,6 +5,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.io.IOException;
 
 
 @RestController
@@ -31,6 +32,19 @@ public class AiController {
     }
 
 
+    @GetMapping("/download")
+    public ResponseEntity<String> downloadModel(
+            @RequestParam String query,
+            @RequestParam String saveDir
+    ) {
+        try {
+           huggingFaceService.downloadModel(query, saveDir);
+            return ResponseEntity.ok("Model downloaded successfully to: " + saveDir);
+        } catch (IOException e) {
+            return ResponseEntity.internalServerError()
+                    .body("Failed to download model: " + e.getMessage());
+        }
+    }
 
 
 

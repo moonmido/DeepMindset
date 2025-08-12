@@ -9,8 +9,15 @@ import org.springframework.http.*;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.net.URL;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 @Service
@@ -76,19 +83,22 @@ public class AiModelService {
 
 
     public List<HuggingFaceModel> searchModels(String query) {
+        String ConfirmedQuery;
         HttpHeaders headers = new HttpHeaders();
         headers.setBearerAuth(huggingFaceApiToken);
         headers.setAccept(List.of(MediaType.APPLICATION_JSON));
 
         HttpEntity<Void> entity = new HttpEntity<>(headers);
-        List<KeywordOutput> keywordOutputs = GetKeyword(query);
-        String keyword = keywordOutputs.getFirst().keyword();
+        KeywordOutput keywordOutputs = GetKeyword(query);
+        String keyword = keywordOutputs.keyword();
+        if(keyword.isEmpty()) ConfirmedQuery=query;
+        else ConfirmedQuery=keyword;
         ResponseEntity<HuggingFaceModel[]> response = restTemplate.exchange(
                 SEARCH_URL,
                 HttpMethod.GET,
                 entity,
                 HuggingFaceModel[].class,
-                keyword
+                ConfirmedQuery
         );
 
         if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
@@ -100,11 +110,68 @@ public class AiModelService {
         return List.of();
     }
 
-    public List<KeywordOutput> GetKeyword(String query) {
+    public KeywordOutput GetKeyword(String query) {
         return chatClient.prompt()
                 .user(query)
                 .call()
-                .entity(new ParameterizedTypeReference<List<KeywordOutput>>() {
-                });
+                .entity(KeywordOutput.class);
     }
+
+    public void downloadModel(String modelId, String saveDir) throws IOException {
+        Path dirPath = Path.of(saveDir);
+        if (!Files.exists(dirPath)) {
+            Files.createDirectories(dirPath);
+        }
+
+        downloadFolderRecursive(modelId, "", dirPath); // start from root folder
+    }
+
+    private void downloadFolderRecursive(String modelId, String folderPath, Path saveDir) throws IOException {
+        String apiUrl = "https://huggingface.co/api/models/" + modelId + "/tree/main" +
+                (folderPath.isEmpty() ? "" : "/" + folderPath);
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(huggingFaceApiToken);
+        headers.setAccept(List.of(MediaType.APPLICATION_JSON));
+        HttpEntity<Void> entity = new HttpEntity<>(headers);
+
+        ResponseEntity<List> response = restTemplate.exchange(
+                apiUrl,
+                HttpMethod.GET,
+                entity,
+                List.class
+        );
+
+        if (response.getStatusCode() != HttpStatus.OK || response.getBody() == null) {
+            throw new IOException("Failed to fetch file list from Hugging Face API for model: " + modelId +
+                    (folderPath.isEmpty() ? "" : " folder: " + folderPath));
+        }
+
+        for (Object fileObj : response.getBody()) {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> fileMap = (Map<String, Object>) fileObj;
+            String path = fileMap.get("path").toString();
+            String type = fileMap.get("type").toString();
+
+            if ("directory".equals(type)) {
+                System.out.println("Entering folder: " + path);
+                downloadFolderRecursive(modelId, path, saveDir); // recursion
+            } else {
+                String fileUrl = "https://huggingface.co/" + modelId + "/resolve/main/" + path;
+                Path targetPath = saveDir.resolve(path);
+
+                Files.createDirectories(targetPath.getParent());
+
+                try (InputStream in = new URL(fileUrl).openStream()) {
+                    Files.copy(in, targetPath, StandardCopyOption.REPLACE_EXISTING);
+                    System.out.println("Downloaded: " + path);
+                } catch (IOException e) {
+                    System.err.println("Failed to download " + path + ": " + e.getMessage());
+                }
+            }
+        }
+    }
+
+
+
 }
