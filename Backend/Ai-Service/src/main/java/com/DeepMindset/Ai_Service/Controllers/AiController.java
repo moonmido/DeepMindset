@@ -1,5 +1,6 @@
 package com.DeepMindset.Ai_Service.Controllers;
 
+import com.DeepMindset.Ai_Service.Models.ModelRequest;
 import com.DeepMindset.Ai_Service.Services.AiModelService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -32,19 +33,12 @@ public class AiController {
     }
 
 
-    @GetMapping("/download")
-    public ResponseEntity<String> downloadModel(
-            @RequestParam String query,
-            @RequestParam String saveDir
-    ) {
-        try {
-           huggingFaceService.downloadModel(query, saveDir);
-            return ResponseEntity.ok("Model downloaded successfully to: " + saveDir);
-        } catch (IOException e) {
-            return ResponseEntity.internalServerError()
-                    .body("Failed to download model: " + e.getMessage());
-        }
+    @PostMapping("/use-model/text-text")
+    public ResponseEntity<String> runModel(@RequestBody ModelRequest request) {
+        String result = huggingFaceService.TextToTextrunModel(request.getModelId(), request.getInputText());
+        return ResponseEntity.ok(result);
     }
+
 
 
 
